@@ -63,7 +63,13 @@ jobs:
           MONDAY_TOKEN: ${{ secrets.MONDAY_TOKEN }}
         run: |
           if [ -z "$MONDAY_TOKEN" ]; then echo "::error::Add a repository secret called MONDAY_TOKEN"; exit 1; fi
-          mapps init -t "$MONDAY_TOKEN"
+          # Keep only the token itself, even if "mapps init -t", spaces or line breaks were pasted in
+          TOKEN=$(printf '%s' "$MONDAY_TOKEN" | tr -s ' \n\r\t' '\n' | tail -n 1)
+          echo "::add-mask::$TOKEN"
+          WORDS=$(printf '%s' "$MONDAY_TOKEN" | wc -w)
+          echo "Secret contains $WORDS word(s); using the last one (${#TOKEN} characters)."
+          case "$TOKEN" in eyJ*) echo "Token format looks right." ;; *) echo "::warning::Token doesn't start with eyJ - check it's a Developer Centre access token." ;; esac
+          mapps init -t "$TOKEN"
 
       - name: Deploy to monday CDN (client-side)
         if: env.HOSTING == 'client'
@@ -79,4 +85,4 @@ jobs:
           ls -R /tmp/bundle | head -20
           REGION_FLAG=""
           if [ -n "${{ vars.MONDAY_REGION }}" ]; then REGION_FLAG="-z ${{ vars.MONDAY_REGION }}"; fi
-          mapps code:push -i "$APP_VERSION_ID" -d /tmp/bundle $REGION_FLAG
+          mapps code:push -i "$APP_VERSION_ID" -d /tmp/bundle $REGION_FLAG --verbose

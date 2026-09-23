@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,13 +21,38 @@ jobs:
       - name: Install monday CLI
         run: npm install -g @mondaycom/apps-cli
 
-      - name: Build and deploy
-        working-directory: monday-assignment-admin
+      - name: Build and deploy Administration View
         env:
           MONDAY_TOKEN: ${{ secrets.MONDAY_TOKEN }}
         run: |
+          set -e
+
+          # Find the app whether its files are at the repository root
+          # or inside a folder.
+          PKG=$(find . -name package.json \
+            -not -path '*/node_modules/*' \
+            -not -path './.git/*' \
+            -print -quit)
+
+          if [ -z "$PKG" ]; then
+            echo "::error::package.json was not found"
+            exit 1
+          fi
+
+          APP_DIR=$(dirname "$PKG")
+          echo "Building app in: $APP_DIR"
+
+          cd "$APP_DIR"
           npm ci
           npm run build
+
+          if [ ! -f dist/index.html ]; then
+            echo "::error::Build did not create dist/index.html"
+            exit 1
+          fi
+
           mapps init -t "$MONDAY_TOKEN"
-          cd dist
-          mapps code:push --client-side --appVersionId 18198232
+          mapps code:push \
+            --client-side \
+            --directoryPath ./dist \
+            --appVersionId 18198232

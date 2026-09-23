@@ -12,7 +12,8 @@ on:
         default: server
 
 env:
-  APP_VERSION_ID: "18198232"
+  # Your app's ID (not a version ID). The newest draft version is used automatically.
+  APP_ID: "12225465"
   HOSTING: ${{ inputs.hosting || 'server' }}
 
 jobs:
@@ -27,6 +28,13 @@ jobs:
         with:
           node-version: 22
 
+      - name: Check settings
+        run: |
+          case "$APP_ID" in
+            ''|*[!0-9]*) echo "::error::Set APP_ID near the top of deploy.yml to your app's ID (numbers only)"; exit 1 ;;
+          esac
+          echo "Deploying app $APP_ID ($HOSTING)"
+
       - name: Find the app
         run: |
           PKG=$(grep -rl --include=package.json '"name": "monday-assignment-admin"' . --exclude-dir=node_modules --exclude-dir=.git | head -n 1)
@@ -38,8 +46,6 @@ jobs:
           APP_DIR=$(dirname "$PKG")
           echo "App found in: $APP_DIR"
           echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
-          echo "Files in the app folder:"
-          find "$APP_DIR" -not -path '*/node_modules/*' -type f | sort
 
       - name: Install, test and build
         working-directory: ${{ env.APP_DIR }}
@@ -52,8 +58,6 @@ jobs:
             echo "::error::dist/index.html uses absolute /assets paths - the page would be blank in monday"
             exit 1
           fi
-          echo "Built page:"
-          cat dist/index.html
 
       - name: Keep a copy of the build
         uses: actions/upload-artifact@v4
@@ -74,24 +78,34 @@ jobs:
           # Keep only the token itself, even if "mapps init -t", spaces or line breaks were pasted in
           TOKEN=$(printf '%s' "$MONDAY_TOKEN" | tr -s ' \n\r\t' '\n' | tail -n 1)
           echo "::add-mask::$TOKEN"
-          WORDS=$(printf '%s' "$MONDAY_TOKEN" | wc -w)
-          echo "Secret contains $WORDS word(s); using the last one (${#TOKEN} characters)."
           case "$TOKEN" in eyJ*) echo "Token format looks right." ;; *) echo "::warning::Token doesn't start with eyJ - check it's a Developer Centre access token." ;; esac
           mapps init -t "$TOKEN"
 
       - name: Deploy to monday code server (server-side)
         if: env.HOSTING == 'server'
         run: |
+          set -o pipefail
           if [ ! -f "$APP_DIR"/monday-code-server/server.js ]; then echo "::error::monday-code-server/server.js wasn't uploaded"; exit 1; fi
           rm -rf /tmp/bundle && mkdir -p /tmp/bundle
           cp "$APP_DIR"/monday-code-server/server.js "$APP_DIR"/monday-code-server/package.json /tmp/bundle/
           cp -r "$APP_DIR"/dist /tmp/bundle/public
-          ls -R /tmp/bundle | head -20
           REGION_FLAG=""
           if [ -n "${{ vars.MONDAY_REGION }}" ]; then REGION_FLAG="-z ${{ vars.MONDAY_REGION }}"; fi
-          mapps code:push -i "$APP_VERSION_ID" -d /tmp/bundle $REGION_FLAG --verbose
+          mapps code:push --appId "$APP_ID" -d /tmp/bundle $REGION_FLAG --verbose 2>&1 | tee /tmp/push.log || {
+            if grep -qiE "given status|No default version|No valid version" /tmp/push.log; then
+              echo "::error::Your newest app version isn't a draft. In Developer Centre, create a new draft version, then run this again."
+            fi
+            exit 1
+          }
 
       - name: Deploy to monday CDN (client-side)
         if: env.HOSTING == 'client'
         working-directory: ${{ env.APP_DIR }}
-        run: mapps code:push --client-side --directoryPath ./dist --appVersionId "$APP_VERSION_ID" --verbose
+        run: |
+          set -o pipefail
+          mapps code:push --client-side --directoryPath ./dist --appId "$APP_ID" --verbose 2>&1 | tee /tmp/push.log || {
+            if grep -qiE "given status|No default version|No valid version" /tmp/push.log; then
+              echo "::error::Your newest app version isn't a draft. In Developer Centre, create a new draft version, then run this again."
+            fi
+            exit 1
+          }

@@ -1,10 +1,32 @@
-      - name: Build and deploy to monday code
+name: Deploy to monday code
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install monday CLI
+        run: npm install -g @mondaycom/apps-cli
+
+      - name: Build and deploy
+        working-directory: monday-assignment-admin
         env:
           MONDAY_TOKEN: ${{ secrets.MONDAY_TOKEN }}
         run: |
-          mapps init -t "$MONDAY_TOKEN"
-          cd monday-assignment-admin
           npm ci
           npm run build
+          mapps init -t "$MONDAY_TOKEN"
           cd dist
           mapps code:push --client-side --appVersionId 18198232

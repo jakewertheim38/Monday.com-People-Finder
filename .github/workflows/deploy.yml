@@ -4,11 +4,21 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      hosting:
+        description: "client = monday's CDN (normal). server = monday code server (use if the CDN upload keeps failing)."
+        type: choice
+        options: [client, server]
+        default: client
+
+env:
+  APP_DIR: monday-assignment-admin
+  APP_VERSION_ID: "18198232"
+  HOSTING: ${{ inputs.hosting || 'client' }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,43 +27,47 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ env.APP_DIR }}/package-lock.json
 
-      - name: Install latest monday CLI
+      - name: Install, test and build
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+          npm run build
+          test -f dist/index.html || { echo "::error::The build did not create dist/index.html"; exit 1; }
+
+      - name: Keep a copy of the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: administration-view-dist
+          path: ${{ env.APP_DIR }}/dist
+
+      - name: Install monday CLI
         run: |
           npm install -g @mondaycom/apps-cli@latest
           mapps --version
 
-      - name: Build and deploy Administration View
+      - name: Sign in to monday
         env:
           MONDAY_TOKEN: ${{ secrets.MONDAY_TOKEN }}
         run: |
-          set -e
-
-          PKG=$(find . -name package.json \
-            -not -path '*/node_modules/*' \
-            -not -path './.git/*' \
-            -print -quit)
-
-          if [ -z "$PKG" ]; then
-            echo "::error::package.json was not found"
-            exit 1
-          fi
-
-          APP_DIR=$(dirname "$PKG")
-          echo "Building app in: $APP_DIR"
-
-          cd "$APP_DIR"
-          npm ci
-          npm run build
-
-          if [ ! -f dist/index.html ]; then
-            echo "::error::Build did not create dist/index.html"
-            exit 1
-          fi
-
+          if [ -z "$MONDAY_TOKEN" ]; then echo "::error::Add a repository secret called MONDAY_TOKEN"; exit 1; fi
           mapps init -t "$MONDAY_TOKEN"
 
-          mapps code:push \
-            --client-side \
-            --directoryPath ./dist \
-            --appVersionId 18198232
+      - name: Deploy to monday CDN (client-side)
+        if: env.HOSTING == 'client'
+        working-directory: ${{ env.APP_DIR }}
+        run: mapps code:push --client-side --directoryPath ./dist --appVersionId "$APP_VERSION_ID" --verbose
+
+      - name: Deploy to monday code server (server-side)
+        if: env.HOSTING == 'server'
+        run: |
+          rm -rf /tmp/bundle && mkdir -p /tmp/bundle
+          cp "$APP_DIR"/monday-code-server/server.js "$APP_DIR"/monday-code-server/package.json /tmp/bundle/
+          cp -r "$APP_DIR"/dist /tmp/bundle/public
+          ls -R /tmp/bundle | head -20
+          REGION_FLAG=""
+          if [ -n "${{ vars.MONDAY_REGION }}" ]; then REGION_FLAG="-z ${{ vars.MONDAY_REGION }}"; fi
+          mapps code:push -i "$APP_VERSION_ID" -d /tmp/bundle $REGION_FLAG

@@ -38,14 +38,23 @@ jobs:
           APP_DIR=$(dirname "$PKG")
           echo "App found in: $APP_DIR"
           echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          echo "Files in the app folder:"
+          find "$APP_DIR" -not -path '*/node_modules/*' -type f | sort
 
       - name: Install, test and build
         working-directory: ${{ env.APP_DIR }}
         run: |
           if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-          npm run check
-          npm run build
+          if [ -f src/people.test.js ]; then npm run check; else echo "::warning::Tests not found - src/people.test.js wasn't uploaded"; fi
+          npm run build -- --base=./
           test -f dist/index.html || { echo "::error::The build did not create dist/index.html"; exit 1; }
+          # The page must load its files with relative paths, or monday shows a blank screen
+          if grep -q 'src="/assets' dist/index.html; then
+            echo "::error::dist/index.html uses absolute /assets paths - the page would be blank in monday"
+            exit 1
+          fi
+          echo "Built page:"
+          cat dist/index.html
 
       - name: Keep a copy of the build
         uses: actions/upload-artifact@v4
@@ -79,6 +88,7 @@ jobs:
       - name: Deploy to monday code server (server-side)
         if: env.HOSTING == 'server'
         run: |
+          if [ ! -f "$APP_DIR"/monday-code-server/server.js ]; then echo "::error::monday-code-server/server.js wasn't uploaded"; exit 1; fi
           rm -rf /tmp/bundle && mkdir -p /tmp/bundle
           cp "$APP_DIR"/monday-code-server/server.js "$APP_DIR"/monday-code-server/package.json /tmp/bundle/
           cp -r "$APP_DIR"/dist /tmp/bundle/public

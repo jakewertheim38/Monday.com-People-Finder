@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       hosting:
-        description: "client = monday's CDN (normal). server = monday code server (use if the CDN upload keeps failing)."
+        description: "server = monday code server (default). client = monday's CDN."
         type: choice
-        options: [client, server]
-        default: client
+        options: [server, client]
+        default: server
 
 env:
   APP_VERSION_ID: "18198232"
-  HOSTING: ${{ inputs.hosting || 'client' }}
+  HOSTING: ${{ inputs.hosting || 'server' }}
 
 jobs:
   deploy:
@@ -48,7 +48,6 @@ jobs:
           if [ -f src/people.test.js ]; then npm run check; else echo "::warning::Tests not found - src/people.test.js wasn't uploaded"; fi
           npm run build -- --base=./
           test -f dist/index.html || { echo "::error::The build did not create dist/index.html"; exit 1; }
-          # The page must load its files with relative paths, or monday shows a blank screen
           if grep -q 'src="/assets' dist/index.html; then
             echo "::error::dist/index.html uses absolute /assets paths - the page would be blank in monday"
             exit 1
@@ -80,11 +79,6 @@ jobs:
           case "$TOKEN" in eyJ*) echo "Token format looks right." ;; *) echo "::warning::Token doesn't start with eyJ - check it's a Developer Centre access token." ;; esac
           mapps init -t "$TOKEN"
 
-      - name: Deploy to monday CDN (client-side)
-        if: env.HOSTING == 'client'
-        working-directory: ${{ env.APP_DIR }}
-        run: mapps code:push --client-side --directoryPath ./dist --appVersionId "$APP_VERSION_ID" --verbose
-
       - name: Deploy to monday code server (server-side)
         if: env.HOSTING == 'server'
         run: |
@@ -96,3 +90,8 @@ jobs:
           REGION_FLAG=""
           if [ -n "${{ vars.MONDAY_REGION }}" ]; then REGION_FLAG="-z ${{ vars.MONDAY_REGION }}"; fi
           mapps code:push -i "$APP_VERSION_ID" -d /tmp/bundle $REGION_FLAG --verbose
+
+      - name: Deploy to monday CDN (client-side)
+        if: env.HOSTING == 'client'
+        working-directory: ${{ env.APP_DIR }}
+        run: mapps code:push --client-side --directoryPath ./dist --appVersionId "$APP_VERSION_ID" --verbose

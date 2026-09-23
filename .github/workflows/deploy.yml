@@ -12,7 +12,6 @@ on:
         default: client
 
 env:
-  APP_DIR: monday-assignment-admin
   APP_VERSION_ID: "18198232"
   HOSTING: ${{ inputs.hosting || 'client' }}
 
@@ -21,19 +20,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: ${{ env.APP_DIR }}/package-lock.json
+
+      - name: Find the app
+        run: |
+          PKG=$(grep -rl --include=package.json '"name": "monday-assignment-admin"' . --exclude-dir=node_modules --exclude-dir=.git | head -n 1)
+          if [ -z "$PKG" ]; then
+            echo "::error::Couldn't find the app's package.json. Files in the repo:"
+            find . -not -path './.git/*' -maxdepth 4 | sort
+            exit 1
+          fi
+          APP_DIR=$(dirname "$PKG")
+          echo "App found in: $APP_DIR"
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
 
       - name: Install, test and build
         working-directory: ${{ env.APP_DIR }}
         run: |
-          npm ci --no-audit --no-fund
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
           npm run check
           npm run build
           test -f dist/index.html || { echo "::error::The build did not create dist/index.html"; exit 1; }

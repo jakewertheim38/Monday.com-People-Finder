@@ -2,6 +2,9 @@ import mondaySdk from 'monday-sdk-js';
 import { assignmentRules, isPerson, replacePerson, retryDelayMs } from './people.js';
 
 export const monday = mondaySdk();
+// Pin the API version so the queries below always mean the same thing,
+// whatever default version the account is set to.
+monday.setApiVersion('2026-01');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Runs as the signed-in admin (seamless auth). Waits and retries when monday's
@@ -13,7 +16,10 @@ async function request(query, variables = {}, attempt = 1) {
     if (!response.errors?.length) return response.data;
     message = response.errors.map(e => e.message).join('; ');
   } catch (error) {
-    message = error?.message || String(error);
+    // Show monday's detailed reasons, not just "Graphql validation errors".
+    const details = [error?.data?.errors, error?.errors, error?.data?.error_message]
+      .flat().filter(Boolean).map(e => e.message || e).join('; ');
+    message = details || error?.message || String(error);
   }
   const wait = retryDelayMs(message);
   if (wait && attempt < 5) {
@@ -41,7 +47,7 @@ export async function loadBoards() {
   const boards = [];
   for (let page = 1; ; page++) {
     const data = await request(
-      `query($page:Int!){ boards(page:$page, limit:100, state:active, hierarchy_type:[classic, multi_level]){
+      `query($page:Int!){ boards(page:$page, limit:100, state:active, hierarchy_types:[classic, multi_level]){
         id name url columns(types:[people]){ id title } } }`,
       { page },
     );

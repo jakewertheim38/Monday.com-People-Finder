@@ -1,0 +1,40 @@
+name: Deploy to monday code
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # adds a "Run workflow" button on the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install monday CLI
+        run: npm install -g @mondaycom/apps-cli
+
+      - name: Deploy to monday code
+        env:
+          MONDAY_TOKEN: ${{ secrets.MONDAY_TOKEN }}
+        run: |
+          # Keep only the token itself, even if "mapps init -t" or spaces were pasted in with it
+          TOKEN=$(printf '%s' "$MONDAY_TOKEN" | tr -s ' \n\r\t' '\n' | tail -n 1)
+          mapps init -t "$TOKEN"
+
+          # Find the app's package.json, even if the project was uploaded inside a subfolder
+          PKG=$(find . -name package.json -not -path '*/node_modules/*' -not -path './.git/*' | head -n 1)
+          if [ -z "$PKG" ]; then
+            echo "::error::package.json was not found in the repository. Files uploaded:"
+            find . -not -path './.git/*' -maxdepth 3
+            exit 1
+          fi
+          APP_DIR=$(dirname "$PKG")
+          echo "Deploying from: $APP_DIR"
+          mapps code:push -i 18198232 "$APP_DIR"

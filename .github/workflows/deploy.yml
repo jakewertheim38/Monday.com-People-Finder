@@ -18,8 +18,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install monday CLI
-        run: npm install -g @mondaycom/apps-cli
+      - name: Install latest monday CLI
+        run: |
+          npm install -g @mondaycom/apps-cli@latest
+          mapps --version
 
       - name: Build and deploy Administration View
         env:
@@ -27,8 +29,6 @@ jobs:
         run: |
           set -e
 
-          # Find the app whether its files are at the repository root
-          # or inside a folder.
           PKG=$(find . -name package.json \
             -not -path '*/node_modules/*' \
             -not -path './.git/*' \
@@ -52,6 +52,7 @@ jobs:
           fi
 
           mapps init -t "$MONDAY_TOKEN"
+
           mapps code:push \
             --client-side \
             --directoryPath ./dist \

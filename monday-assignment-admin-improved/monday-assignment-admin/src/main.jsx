@@ -68,6 +68,10 @@ const resultsMode = a => (directPick(a) || a.mode === 'select') ? 'select' : a.r
 
 // ---------- Small building blocks ----------
 
+// Stays pinned to the bottom of the screen, so Back / Next / Apply are always in reach.
+const ActionBar = ({ children }) => <div className="actionbar">{children}</div>;
+const BackButton = ({ onClick }) => <button className="secondary" onClick={onClick}>Back</button>;
+
 function Options({ options, onPick }) {
   return <div className="options">
     {options.map(o => <button key={o.value} className="option" onClick={() => onPick(o.value)}>
@@ -97,7 +101,15 @@ function Checklist({ items, selected, setSelected, render, disabledReason, filte
   const shown = items.filter(i => !filterText || render.text(i).toLowerCase().includes(filterText.toLowerCase()));
   const selectable = shown.filter(i => !disabledReason?.(i)).map(i => i.key);
   const all = selectable.length > 0 && selectable.every(k => selected.includes(k));
+  const count = selected.length;
   return <div className="table">
+    <div className="select-tools">
+      <button type="button" className="secondary small" disabled={!selectable.length || all}
+        onClick={() => setSelected([...new Set([...selected, ...selectable])])}>
+        Select all{filterText ? ' shown' : ''} ({selectable.length})</button>
+      <button type="button" className="secondary small" disabled={!count} onClick={() => setSelected([])}>Clear</button>
+      <span className="muted">{count} selected</span>
+    </div>
     <table>
       <thead><tr>
         <th><input type="checkbox" aria-label="Select all shown" checked={all} disabled={!selectable.length}
@@ -138,7 +150,7 @@ function PersonStep({ users, loading, onPick }) {
   </>;
 }
 
-function WorkspaceScopeStep({ workspaces, onPick }) {
+function WorkspaceScopeStep({ workspaces, onPick, onBack }) {
   const [choosing, setChoosing] = useState(false);
   const [ids, setIds] = useState([]);
   const [filter, setFilter] = useState('');
@@ -149,13 +161,17 @@ function WorkspaceScopeStep({ workspaces, onPick }) {
       { value: 'all', label: 'All workspaces', hint: 'Every workspace you can see' },
       { value: 'some', label: 'Choose workspaces', hint: 'Pick one or more workspaces' },
     ]} onPick={v => v === 'all' ? onPick({ all: true }) : setChoosing(true)} />
+    <ActionBar><BackButton onClick={onBack} /></ActionBar>
   </>;
   return <>
     <h2>Which workspaces?</h2>
     <input className="wide" placeholder="Filter workspaces" value={filter} onChange={e => setFilter(e.target.value)} />
     <Checklist items={list} selected={ids} setSelected={setIds} filterText={filter}
       render={{ head: ['Workspace'], text: w => w.name, cells: w => [w.name] }} />
-    <div className="bar"><button disabled={!ids.length} onClick={() => onPick({ ids })}>Next ({ids.length} chosen)</button></div>
+    <ActionBar>
+      <BackButton onClick={() => setChoosing(false)} />
+      <button disabled={!ids.length} onClick={() => onPick({ ids })}>Next ({ids.length} chosen)</button>
+    </ActionBar>
   </>;
 }
 
@@ -258,7 +274,7 @@ function Results({ answers, users, workspaces, onRestart, onNewSearch, onBack })
 
   if (phase === 'loading' || phase === 'working' || phase === 'error') {
     return <><h2>{phase === 'working' ? 'Making changes' : 'Searching'}</h2><p className="status" role="status">{progress}</p>
-      {phase === 'error' && <div className="bar"><button className="secondary" onClick={onRestart}>Start again</button></div>}</>;
+      {phase === 'error' && <ActionBar><BackButton onClick={onBack} /><button className="secondary" onClick={onRestart}>Start again</button></ActionBar>}</>;
   }
 
   if (phase === 'done') return <Summary summary={summary} readErrors={readErrors} onRestart={onRestart} onNewSearch={onNewSearch} personName={personName} />;
@@ -299,8 +315,8 @@ function Results({ answers, users, workspaces, onRestart, onNewSearch, onBack })
     {!!readErrors.length && <details><summary>{plural(readErrors.length, 'board')} couldn't be searched</summary>
       <ul>{readErrors.map((e, i) => <li key={i}>{e.name}: {e.reason}</li>)}</ul></details>}
 
-    <div className="bar">
-      <button className="secondary" onClick={onBack}>Back</button>
+    <ActionBar>
+      <BackButton onClick={onBack} />
       {!confirming
         ? <button disabled={!canApply} onClick={() => setConfirming(true)}>
             {mode === 'preview' ? 'Go' : `Apply to ${plural(chosen.length, nouns[area])}`}</button>
@@ -309,8 +325,8 @@ function Results({ answers, users, workspaces, onRestart, onNewSearch, onBack })
             <button onClick={() => apply(chosen, mode === 'preview' ? notEligible : [])}>Yes, do it</button>
             <button className="secondary" onClick={() => setConfirming(false)}>Cancel</button>
           </div>}
-      {!!notEligible.length && <span className="muted">{plural(notEligible.length, nouns[area])} will be skipped</span>}
-    </div>
+      {!!notEligible.length && !confirming && <span className="muted">{plural(notEligible.length, nouns[area])} will be skipped</span>}
+    </ActionBar>
   </>;
 }
 
@@ -328,10 +344,10 @@ function Summary({ summary, readErrors, onRestart, onNewSearch, personName }) {
     {!!changed.length && <details><summary>Changed</summary><ul>{changed.map((c, i) => <li key={i}>{c}</li>)}</ul></details>}
     {!!readErrors.length && <details><summary>{plural(readErrors.length, 'board')} couldn't be searched</summary>
       <ul>{readErrors.map((e, i) => <li key={i}>{e.name}: {e.reason}</li>)}</ul></details>}
-    <div className="bar">
+    <ActionBar>
       <button onClick={onNewSearch}>Something else for {personName}</button>
       <button className="secondary" onClick={onRestart}>Start over</button>
-    </div>
+    </ActionBar>
   </>;
 }
 
@@ -403,7 +419,7 @@ function App() {
         <Options options={Object.entries(AREAS).map(([value, a]) => ({ value, label: a.label, hint: a.hint }))}
           onPick={v => answer('area', v)} /></>}
 
-      {step === 'scope' && answers.area !== 'workspaces' && <WorkspaceScopeStep workspaces={workspaces} onPick={s => answer('scope', s)} />}
+      {step === 'scope' && answers.area !== 'workspaces' && <WorkspaceScopeStep workspaces={workspaces} onPick={s => answer('scope', s)} onBack={back} />}
       {step === 'scope' && answers.area === 'workspaces' && <><h2>Which workspaces?</h2>
         <Options options={[
           { value: 'theirs', label: `Only ones ${person?.name} is in`, hint: 'Workspaces they are a member or owner of' },
@@ -416,7 +432,10 @@ function App() {
       {step === 'people' && <><h2>{answers.action === 'add' ? 'Who should be added?' : `Who should replace ${person?.name}?`}</h2>
         <p className="muted">Add as many people as you need.</p>
         <PeoplePicker people={assignable} value={peopleDraft} onChange={setPeopleDraft} />
-        <div className="bar"><button disabled={!peopleDraft.length} onClick={() => answer('people', peopleDraft)}>Next</button></div></>}
+        <ActionBar>
+          <BackButton onClick={back} />
+          <button disabled={!peopleDraft.length} onClick={() => answer('people', peopleDraft)}>Next</button>
+        </ActionBar></>}
 
       {step === 'mode' && <><h2>All of them, or choose?</h2>
         <Options options={[
@@ -433,7 +452,8 @@ function App() {
       {step === 'results' && <Results key={run} answers={answers} users={users} workspaces={workspaces}
         onRestart={restart} onNewSearch={newSearch} onBack={back} />}
 
-      {step !== 'person' && step !== 'results' && <div className="bar back"><button className="secondary" onClick={back}>Back</button></div>}
+      {(['area', 'action', 'mode', 'run'].includes(step) || (step === 'scope' && answers.area === 'workspaces')) &&
+        <ActionBar><BackButton onClick={back} /></ActionBar>}
     </section>
 
     <footer>Covers boards and workspaces your account can see. Other people and teams are never changed.</footer>

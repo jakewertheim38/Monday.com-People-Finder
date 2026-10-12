@@ -144,13 +144,25 @@ function PersonStep({ users, loading, onPick }) {
   return <>
     <h2>Who are you looking for?</h2>
     <input autoFocus className="wide" placeholder="Type a name or email" value={text} onChange={e => setText(e.target.value)} />
-    <label className="toggle-inactive">
-      <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
-      {' '}Include inactive users
-    </label>
+    <div className="filter-bar">
+      <div className="filter-labels">
+        <span style={{ color: showInactive ? 'var(--muted)' : 'var(--fg)', fontWeight: showInactive ? 500 : 700 }}>Active users</span>
+        <span className="filter-sep">/</span>
+        <span style={{ color: showInactive ? 'var(--fg)' : 'var(--muted)', fontWeight: showInactive ? 700 : 500 }}>Include inactive</span>
+      </div>
+      <label className="switch" aria-label="Include inactive users">
+        <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+        <span className="switch-track" />
+      </label>
+    </div>
     <div className="people-list">
       {loading ? <p className="muted">Loading people…</p> : matches.map(u =>
-        <button key={u.id} className="person" onClick={() => onPick(String(u.id))}>{userLabel(u)}</button>)}
+        <button key={u.id} className="person" onClick={() => onPick(String(u.id))}>
+          {userLabel(u)}
+          {showInactive && <span className={`status-badge ${u.enabled === false ? 'badge-inactive' : 'badge-active'}`}>
+            {u.enabled === false ? 'Inactive' : 'Active'}
+          </span>}
+        </button>)}
       {!loading && !matches.length && <p className="muted">No one matches that.</p>}
     </div>
   </>;

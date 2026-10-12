@@ -135,13 +135,19 @@ function Checklist({ items, selected, setSelected, render, disabledReason, filte
 
 function PersonStep({ users, loading, onPick }) {
   const [text, setText] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   const matches = useMemo(() => {
     const t = text.trim().toLowerCase();
-    return (t ? users.filter(u => `${u.name} ${u.email || ''}`.toLowerCase().includes(t)) : users).slice(0, 40);
-  }, [users, text]);
+    const filtered = users.filter(u => showInactive ? true : u.enabled !== false);
+    return (t ? filtered.filter(u => `${u.name} ${u.email || ''}`.toLowerCase().includes(t)) : filtered).slice(0, 40);
+  }, [users, text, showInactive]);
   return <>
     <h2>Who are you looking for?</h2>
     <input autoFocus className="wide" placeholder="Type a name or email" value={text} onChange={e => setText(e.target.value)} />
+    <label className="toggle-inactive">
+      <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+      {' '}Include inactive users
+    </label>
     <div className="people-list">
       {loading ? <p className="muted">Loading people…</p> : matches.map(u =>
         <button key={u.id} className="person" onClick={() => onPick(String(u.id))}>{userLabel(u)}</button>)}

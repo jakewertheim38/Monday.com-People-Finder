@@ -381,7 +381,7 @@ function App() {
   useEffect(() => {
     loadUsers().then(setUsers).catch(e => setNotice(`Couldn't load people: ${e.message}`)).finally(() => setLoading(false));
     loadWorkspaces().then(setWorkspaces).catch(e => setNotice(`Couldn't load workspaces: ${e.message}`));
-    loadTeams().then(setTeams).catch(() => {});
+    loadTeams().then(setTeams).catch(e => setNotice(`Couldn't load teams: ${e.message}`));
   }, []);
 
   const step = nextStep(answers);

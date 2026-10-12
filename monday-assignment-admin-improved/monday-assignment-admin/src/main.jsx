@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  loadUsers, loadWorkspaces, loadBoards, describeBoards, describeWorkspaces,
-  findTasks, changeTask, changeMembership, inParallel,
+  loadUsers, loadWorkspaces, loadTeams, loadBoards, describeBoards, describeWorkspaces,
+  findTasks, changeTask, changeMembership, splitTeamIds, inParallel,
 } from './api';
 import { MAIN_WORKSPACE } from './people';
 import './style.css';
@@ -80,17 +80,25 @@ function Options({ options, onPick }) {
   </div>;
 }
 
-function PeoplePicker({ people, value, onChange, disabled, placeholder = 'Type a name to add someone' }) {
+function PeoplePicker({ people, teams = [], value, onChange, disabled, placeholder = 'Type a name or team to add' }) {
   const [text, setText] = useState('');
-  const byLabel = useMemo(() => new Map(people.map(u => [userLabel(u), String(u.id)])), [people]);
-  const names = useMemo(() => new Map(people.map(u => [String(u.id), u.name])), [people]);
+  const byLabel = useMemo(() => {
+    const m = new Map(people.map(u => [userLabel(u), String(u.id)]));
+    teams.forEach(t => m.set(`${t.name} (Team)`, `team:${t.id}`));
+    return m;
+  }, [people, teams]);
+  const names = useMemo(() => {
+    const m = new Map(people.map(u => [String(u.id), u.name]));
+    teams.forEach(t => m.set(`team:${t.id}`, `${t.name} (Team)`));
+    return m;
+  }, [people, teams]);
   function pick(input) {
     setText(input);
     const id = byLabel.get(input);
     if (id) { onChange([...new Set([...value, id])]); setText(''); }
   }
   return <div className="picker">
-    {value.map(id => <span className="chip" key={id}>{names.get(id) || id}
+    {value.map(id => <span className={`chip${id.startsWith('team:') ? ' chip-team' : ''}`} key={id}>{names.get(id) || id}
       <button type="button" aria-label={`Remove ${names.get(id)}`} disabled={disabled}
         onClick={() => onChange(value.filter(x => x !== id))}>×</button></span>)}
     <input list="people-options" value={text} placeholder={placeholder} disabled={disabled} onChange={e => pick(e.target.value)} />
@@ -177,7 +185,7 @@ function WorkspaceScopeStep({ workspaces, onPick, onBack }) {
 
 // ---------- Results: find, show, and apply ----------
 
-function Results({ answers, users, workspaces, onRestart, onNewSearch, onBack }) {
+function Results({ answers, users, teams, workspaces, onRestart, onNewSearch, onBack }) {
   const { person, area, scope, action, people = [] } = answers;
   const mode = resultsMode(answers);
   const personName = users.find(u => String(u.id) === person)?.name || 'this person';
@@ -193,6 +201,7 @@ function Results({ answers, users, workspaces, onRestart, onNewSearch, onBack })
   const [summary, setSummary] = useState(null);
   const started = useRef(false);
   const assignable = users.filter(u => u.enabled !== false && String(u.id) !== person);
+  const assignableTeams = teams;
 
   // 1. Find everything relevant.
   useEffect(() => {
@@ -259,7 +268,11 @@ function Results({ answers, users, workspaces, onRestart, onNewSearch, onBack })
 
   const chosen = mode === 'select' ? eligible.filter(r => selected.includes(r.key)) : eligible;
   const canApply = chosen.length && (area !== 'tasks' || (taskAction && (!needsPeople || taskPeople.length)));
-  const peopleNames = taskPeople.map(id => users.find(u => String(u.id) === id)?.name).join(', ');
+  const peopleNames = taskPeople.map(id =>
+    id.startsWith('team:')
+      ? (teams.find(t => `team:${t.id}` === id)?.name || id) + ' (Team)'
+      : users.find(u => String(u.id) === id)?.name
+  ).join(', ');
   const plan = area === 'tasks'
     ? { add: `Add ${peopleNames} to`, replace: `Replace ${personName} with ${peopleNames} on`, remove: `Remove ${personName} from` }[taskAction]
     : `${ACTIONS[area][action].verb}`.replace('them', personName);
@@ -297,7 +310,7 @@ function Results({ answers, users, workspaces, onRestart, onNewSearch, onBack })
           <option value="remove">Remove them</option>
         </select>
       </label>
-      {needsPeople && <label>Who?<PeoplePicker people={assignable} value={taskPeople} onChange={setTaskPeople} /></label>}
+      {needsPeople && <label>Who?<PeoplePicker people={assignable} teams={assignableTeams} value={taskPeople} onChange={setTaskPeople} /></label>}
     </div>}
 
     {!!rows.length && <input className="wide" placeholder="Filter the list" value={filter} onChange={e => setFilter(e.target.value)} />}
@@ -358,6 +371,7 @@ const ORDER = ['person', 'area', 'scope', 'action', 'people', 'mode', 'run'];
 function App() {
   const [users, setUsers] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [answers, setAnswers] = useState({});
@@ -367,6 +381,7 @@ function App() {
   useEffect(() => {
     loadUsers().then(setUsers).catch(e => setNotice(`Couldn't load people: ${e.message}`)).finally(() => setLoading(false));
     loadWorkspaces().then(setWorkspaces).catch(e => setNotice(`Couldn't load workspaces: ${e.message}`));
+    loadTeams().then(setTeams).catch(() => {});
   }, []);
 
   const step = nextStep(answers);
@@ -400,7 +415,10 @@ function App() {
     .map(([value, a]) => ({ value, label: a.label, hint: a.hint }));
 
   return <main>
-    <datalist id="people-options">{assignable.map(u => <option key={u.id} value={userLabel(u)} />)}</datalist>
+    <datalist id="people-options">
+      {assignable.map(u => <option key={u.id} value={userLabel(u)} />)}
+      {teams.map(t => <option key={`team:${t.id}`} value={`${t.name} (Team)`} />)}
+    </datalist>
     <header>
       <h1>People administration</h1>
       <p>Find a person's tasks, boards and workspaces, and change them in one go.</p>
@@ -430,8 +448,8 @@ function App() {
         <Options options={actionOptions} onPick={v => answer('action', v)} /></>}
 
       {step === 'people' && <><h2>{answers.action === 'add' ? 'Who should be added?' : `Who should replace ${person?.name}?`}</h2>
-        <p className="muted">Add as many people as you need.</p>
-        <PeoplePicker people={assignable} value={peopleDraft} onChange={setPeopleDraft} />
+        <p className="muted">Add as many people or teams as you need.</p>
+        <PeoplePicker people={assignable} teams={teams} value={peopleDraft} onChange={setPeopleDraft} />
         <ActionBar>
           <BackButton onClick={back} />
           <button disabled={!peopleDraft.length} onClick={() => answer('people', peopleDraft)}>Next</button>
@@ -449,7 +467,7 @@ function App() {
           { value: 'go', label: 'Go straight in', hint: `Find them and change them now` },
         ]} onPick={v => answer('run', v)} /></>}
 
-      {step === 'results' && <Results key={run} answers={answers} users={users} workspaces={workspaces}
+      {step === 'results' && <Results key={run} answers={answers} users={users} teams={teams} workspaces={workspaces}
         onRestart={restart} onNewSearch={newSearch} onBack={back} />}
 
       {(['area', 'action', 'mode', 'run'].includes(step) || (step === 'scope' && answers.area === 'workspaces')) &&

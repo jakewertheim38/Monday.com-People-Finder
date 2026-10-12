@@ -4,6 +4,16 @@ import {
   inWorkspaceScope, retryDelayMs, MAIN_WORKSPACE,
 } from './people.js';
 
+// Splits a mixed list of "123" (user) and "team:123" (team) ids into two arrays.
+export function splitTeamIds(ids) {
+  const users = [], teams = [];
+  for (const id of ids) {
+    if (String(id).startsWith('team:')) teams.push(String(id).slice(5));
+    else users.push(String(id));
+  }
+  return { users, teams };
+}
+
 export const monday = mondaySdk();
 // Pin the API version so the queries below always mean the same thing.
 monday.setApiVersion('2026-01');
@@ -44,6 +54,17 @@ async function inParallel(list, job, onProgress, parallel = 3) {
 }
 
 // ---------- People and workspaces ----------
+
+export async function loadTeams() {
+  const teams = [];
+  for (let page = 1; ; page++) {
+    const data = await request(
+      'query($page:Int!){ teams(page:$page, limit:100){ id name } }', { page });
+    teams.push(...data.teams);
+    if (data.teams.length < 100) break;
+  }
+  return teams.sort((a, b) => a.name.localeCompare(b.name));
+}
 
 export async function loadUsers() {
   const users = [];
@@ -147,17 +168,31 @@ const ops = {
     read: boardMembership,
     add: (id, userId, kind) => request('mutation($id:ID!, $u:[ID!]!, $k:BoardSubscriberKind){ add_users_to_board(board_id:$id, user_ids:$u, kind:$k){ id } }', { id, u: [userId], k: kind }),
     remove: (id, userId) => request('mutation($id:ID!, $u:[ID!]!){ delete_subscribers_from_board(board_id:$id, user_ids:$u){ id } }', { id, u: [userId] }),
+    addTeam: (id, teamId) => request('mutation($id:ID!, $t:[ID!]!){ add_teams_to_board(board_id:$id, team_ids:$t, kind:subscriber){ id } }', { id, t: [teamId] }),
+    removeTeam: (id, teamId) => request('mutation($id:ID!, $t:[ID!]!){ delete_teams_from_board(board_id:$id, team_ids:$t){ id } }', { id, t: [teamId] }),
   },
   workspace: {
     read: workspaceMembership,
     add: (id, userId, kind) => request('mutation($id:ID!, $u:[ID!]!, $k:WorkspaceSubscriberKind){ add_users_to_workspace(workspace_id:$id, user_ids:$u, kind:$k){ id } }', { id, u: [userId], k: kind }),
     remove: (id, userId) => request('mutation($id:ID!, $u:[ID!]!){ delete_users_from_workspace(workspace_id:$id, user_ids:$u){ id } }', { id, u: [userId] }),
+    addTeam: (id, teamId) => request('mutation($id:ID!, $t:[ID!]!){ add_teams_to_workspace(workspace_id:$id, team_ids:$t, kind:subscriber){ id } }', { id, t: [teamId] }),
+    removeTeam: (id, teamId) => request('mutation($id:ID!, $t:[ID!]!){ delete_teams_from_workspace(workspace_id:$id, team_ids:$t){ id } }', { id, t: [teamId] }),
   },
 };
 
 // Re-checks the person's role just before changing anything, makes the change,
 // then reads it back to confirm monday really applied it.
+// userId may be "team:123" to add/remove a team instead of a user.
 export async function changeMembership(type, id, userId, action) {
+  const { teams } = splitTeamIds([userId]);
+  if (teams.length) {
+    const teamId = teams[0];
+    if (action === 'add') await ops[type].addTeam(id, teamId);
+    else if (action === 'remove') await ops[type].removeTeam(id, teamId);
+    else return { status: 'skipped', reason: 'teams only support add and remove' };
+    return { status: 'changed' };
+  }
+
   const op = ops[type];
   const before = await op.read(id);
   const check = membershipCheck(action, roleOf(userId, before.owners, before.members), before.owners.length);
@@ -221,6 +256,7 @@ export async function findTasks(userId, boards, onProgress) {
 
 // add / replace / remove on one task. Re-reads the task first so changes made
 // since the search are kept, and only ever touches the searched person.
+// newIds may contain "team:123" entries which are added as kind:team.
 export async function changeTask(row, userId, action, newIds = []) {
   const data = await request(
     'query($id:[ID!], $column:[String!]){ items(ids:$id){ id column_values(ids:$column){ id ... on PeopleValue { persons_and_teams { id kind } } } } }',
@@ -228,7 +264,9 @@ export async function changeTask(row, userId, action, newIds = []) {
   );
   const people = data.items[0]?.column_values[0]?.persons_and_teams;
   if (!people?.some(p => isPerson(p, userId))) return { status: 'skipped', reason: 'no longer assigned to this task' };
-  const next = taskPeopleAfter(people, userId, action, newIds);
+  const { users: userIds, teams: teamIds } = splitTeamIds(newIds);
+  const next = taskPeopleAfter(people, userId, action, userIds);
+  for (const tid of teamIds) if (!next.some(p => p.kind === 'team' && String(p.id) === tid)) next.push({ id: Number(tid), kind: 'team' });
   await request(
     'mutation($board:ID!, $item:ID!, $values:JSON!){ change_multiple_column_values(board_id:$board, item_id:$item, column_values:$values){ id } }',
     { board: row.board.id, item: row.item.id, values: JSON.stringify({ [row.column.id]: next.length ? { personsAndTeams: next } : null }) },

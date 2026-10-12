@@ -46,11 +46,10 @@ async function inParallel(list, job, onProgress, parallel = 3) {
 // ---------- People and workspaces ----------
 
 export async function loadUsers() {
-  // kind:all includes deactivated (enabled:false) accounts alongside active ones.
   const users = [];
   for (let page = 1; ; page++) {
     const data = await request(
-      'query($page:Int!){ users(page:$page, limit:100, kind:all){ id name email enabled is_guest } }', { page });
+      'query($page:Int!){ users(page:$page, limit:100){ id name email enabled is_guest } }', { page });
     users.push(...data.users);
     if (data.users.length < 100) break;
   }

@@ -135,34 +135,16 @@ function Checklist({ items, selected, setSelected, render, disabledReason, filte
 
 function PersonStep({ users, loading, onPick }) {
   const [text, setText] = useState('');
-  const [showInactive, setShowInactive] = useState(false);
   const matches = useMemo(() => {
     const t = text.trim().toLowerCase();
-    const filtered = users.filter(u => showInactive ? true : u.enabled !== false);
-    return (t ? filtered.filter(u => `${u.name} ${u.email || ''}`.toLowerCase().includes(t)) : filtered).slice(0, 40);
-  }, [users, text, showInactive]);
+    return (t ? users.filter(u => `${u.name} ${u.email || ''}`.toLowerCase().includes(t)) : users).slice(0, 40);
+  }, [users, text]);
   return <>
     <h2>Who are you looking for?</h2>
     <input autoFocus className="wide" placeholder="Type a name or email" value={text} onChange={e => setText(e.target.value)} />
-    <div className="filter-bar">
-      <div className="filter-labels">
-        <span style={{ color: showInactive ? 'var(--muted)' : 'var(--fg)', fontWeight: showInactive ? 500 : 700 }}>Active users</span>
-        <span className="filter-sep">/</span>
-        <span style={{ color: showInactive ? 'var(--fg)' : 'var(--muted)', fontWeight: showInactive ? 700 : 500 }}>Include inactive</span>
-      </div>
-      <label className="switch" aria-label="Include inactive users">
-        <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
-        <span className="switch-track" />
-      </label>
-    </div>
     <div className="people-list">
       {loading ? <p className="muted">Loading people…</p> : matches.map(u =>
-        <button key={u.id} className="person" onClick={() => onPick(String(u.id))}>
-          {userLabel(u)}
-          {showInactive && <span className={`status-badge ${u.enabled === false ? 'badge-inactive' : 'badge-active'}`}>
-            {u.enabled === false ? 'Inactive' : 'Active'}
-          </span>}
-        </button>)}
+        <button key={u.id} className="person" onClick={() => onPick(String(u.id))}>{userLabel(u)}</button>)}
       {!loading && !matches.length && <p className="muted">No one matches that.</p>}
     </div>
   </>;

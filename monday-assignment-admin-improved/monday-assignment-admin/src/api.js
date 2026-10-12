@@ -45,15 +45,26 @@ async function inParallel(list, job, onProgress, parallel = 3) {
 
 // ---------- People and workspaces ----------
 
-export async function loadUsers() {
+async function fetchUsersPage(extraArgs = '') {
   const users = [];
   for (let page = 1; ; page++) {
     const data = await request(
-      'query($page:Int!){ users(page:$page, limit:100){ id name email enabled is_guest } }', { page });
+      `query($page:Int!){ users(page:$page, limit:100${extraArgs}){ id name email enabled is_guest } }`, { page });
     users.push(...data.users);
     if (data.users.length < 100) break;
   }
-  return users.sort((a, b) => a.name.localeCompare(b.name));
+  return users;
+}
+
+export async function loadUsers() {
+  // Fetch active and inactive users in parallel; the standard query only returns active ones.
+  const [active, inactive] = await Promise.all([
+    fetchUsersPage(),
+    fetchUsersPage(', enabled: false').catch(() => []),
+  ]);
+  const seen = new Set(active.map(u => u.id));
+  const all = [...active, ...inactive.filter(u => !seen.has(u.id))];
+  return all.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function loadWorkspaces() {
